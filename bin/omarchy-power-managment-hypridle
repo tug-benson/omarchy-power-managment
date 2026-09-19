@@ -15,22 +15,34 @@ import tempfile
 from pathlib import Path
 
 HYPRIDLE_PATH = Path.home() / ".config/hypr/hypridle.conf"
+SHELL_JSON = Path.home() / ".config/omarchy/shell.json"
 SCREENSAVER_CMD = "omarchy-launch-screensaver"
 LOCK_CMD = "omarchy-system-lock"
 DPMS_OFF = "dpms off"
 DPMS_ON = "dpms on"
 
 def is_hypridle_active():
+    # Quattro uses omarchy-shell idle service, not hypridle binary.
+    # Check omarchy-shell idle status, fallback to hypridle pgrep.
+    try:
+        out = subprocess.check_output(["omarchy-shell", "idle", "status"], text=True, timeout=3)
+        j = json.loads(out)
+        # idleEnabled true means backend active
+        if "enabled" in j:
+            return bool(j["enabled"])
+        return True
+    except Exception:
+        pass
     try:
         subprocess.check_call(["pgrep", "-x", "hypridle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
-        # also check systemctl --user
         try:
             out = subprocess.check_output(["systemctl", "--user", "is-active", "hypridle"], text=True).strip()
             return out == "active"
         except Exception:
-            return False
+            # If no hypridle, consider omarchy idle as active (Quattro default)
+            return True
 
 def parse_hypridle(text):
     """return dict with saver/display/lock secs and enabled flags."""
@@ -68,14 +80,79 @@ def parse_hypridle(text):
         # lock is omarchy-system-lock without screensaver
     return saver, display, lock
 
+def read_shell_idle():
+    try:
+        if SHELL_JSON.exists():
+            j = json.loads(SHELL_JSON.read_text())
+            idle = j.get("idle", {})
+            s = idle.get("screensaver")
+            l = idle.get("lock")
+            # shell idle uses int seconds directly
+            try:
+                s = int(s) if s is not None else None
+            except Exception:
+                s = None
+            try:
+                l = int(l) if l is not None else None
+            except Exception:
+                l = None
+            return s, l
+    except Exception:
+        pass
+    return None, None
+
+def write_shell_idle(saver, lock):
+    try:
+        data = {}
+        if SHELL_JSON.exists():
+            try:
+                data = json.loads(SHELL_JSON.read_text())
+            except Exception:
+                data = {}
+        if "idle" not in data or not isinstance(data["idle"], dict):
+            data["idle"] = {}
+        if saver is not None:
+            data["idle"]["screensaver"] = int(saver)
+        if lock is not None:
+            data["idle"]["lock"] = int(lock)
+        # atomic write
+        SHELL_JSON.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(SHELL_JSON.parent), prefix="shell.json.tmp.")
+        try:
+            os.write(fd, json.dumps(data, indent=4).encode())
+            os.fsync(fd)
+            os.close(fd)
+            os.rename(tmp, str(SHELL_JSON))
+            os.chmod(str(SHELL_JSON), 0o600)
+        finally:
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        print(f"shell.json write failed: {e}", file=sys.stderr)
+        return False
+
 def get_state():
     saver, display, lock = None, None, None
     enabled_saver = True
     enabled_display = False
     enabled_lock = True
+    # Prefer shell.json (Quattro) over hypridle.conf
+    shell_saver, shell_lock = read_shell_idle()
     if HYPRIDLE_PATH.exists():
         text = HYPRIDLE_PATH.read_text()
         saver, display, lock = parse_hypridle(text)
+    # override with shell.json if present
+    if shell_saver is not None:
+        saver = shell_saver
+    if shell_lock is not None:
+        lock = shell_lock
     # defaults if missing
     if saver is None:
         saver = 1800
@@ -221,7 +298,14 @@ def main():
 
     content = generate_hypridle(saver if saver != 0 else 0, display if display != 0 else 0, lock if lock != 0 else 0)
     atomic_write(HYPRIDLE_PATH, content)
+    # also sync to shell.json (Quattro source of truth)
+    write_shell_idle(saver if saver != 0 else 0, lock if lock != 0 else 0)
     reload_hypridle()
+    # also trigger shell reload via rescan or signal? shell watches file
+    try:
+        subprocess.run(["omarchy-shell", "reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+    except Exception:
+        pass
     print(json.dumps({"ok": True, "screensaverSec": saver, "displayOffSec": display, "lockSec": lock}))
 
 if __name__ == "__main__":

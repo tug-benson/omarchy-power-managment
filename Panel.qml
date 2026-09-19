@@ -39,6 +39,7 @@ Panel {
     property bool timingsCollapsed: false
     property bool idleCollapsed: false
     property bool lidCollapsed: false
+    property string confirmAction: ""
 
     readonly property var timeOptions: [
         { value: 0, label: "Never" },
@@ -154,10 +155,10 @@ Panel {
                         }
                     }
 
-                    // hypridle warning
+                    // idle warning — only relevant on laptop or when stay-awake blocks idle
                     Rectangle {
                         Layout.fillWidth: true
-                        visible: service && !service.hypridleActive
+                        visible: service && !service.hypridleActive && service.isLaptop
                         radius: Style.space(6)
                         color: Util.alpha(Color.urgent, 0.12)
                         border.color: Util.alpha(Color.urgent, 0.35)
@@ -168,8 +169,8 @@ Panel {
                             anchors.fill: parent
                             anchors.margins: Style.space(8)
                             spacing: Style.space(4)
-                            Label { textFormat: Text.PlainText; text: "hypridle not running"; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true; color: Color.urgent }
-                            Label { Layout.fillWidth: true; textFormat: Text.PlainText; text: "Run: systemctl --user enable --now hypridle"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: Style.font.caption - 1; color: Color.muted; wrapMode: Text.Wrap }
+                            Label { textFormat: Text.PlainText; text: "Idle backend not active"; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true; color: Color.urgent }
+                            Label { Layout.fillWidth: true; textFormat: Text.PlainText; text: "Check: omarchy-shell idle status — toggles/stay-awake may block idle"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: Style.font.caption - 1; color: Color.muted; wrapMode: Text.Wrap }
                         }
                     }
 
@@ -190,6 +191,144 @@ Panel {
                     }
 
                     Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Qt.rgba(1,1,1,0.08) }
+
+                    // ── Actions (5 icon buttons) — below title ──
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: Style.space(6)
+                        color: Util.alpha(Color.foreground, 0.02)
+                        border.color: Util.alpha(Color.foreground, 0.06)
+                        border.width: 1
+                        implicitHeight: actionsCol.implicitHeight + Style.space(12)
+                        ColumnLayout {
+                            id: actionsCol
+                            anchors.fill: parent
+                            anchors.margins: Style.space(8)
+                            spacing: Style.space(6)
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Style.space(4)
+                                Label {
+                                    Layout.fillWidth: true
+                                    textFormat: Text.PlainText
+                                    text: "Actions"
+                                    font.family: Style.font.family
+                                    font.pixelSize: Style.font.caption
+                                    font.bold: true
+                                    color: Color.foreground
+                                }
+                                Label {
+                                    textFormat: Text.PlainText
+                                    text: "󰐦"
+                                    font.family: "JetBrainsMono Nerd Font"
+                                    font.pixelSize: Style.font.caption
+                                    color: Color.muted
+                                    opacity: 0.6
+                                }
+                            }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 5
+                                columnSpacing: Style.space(6)
+                                rowSpacing: Style.space(6)
+                                Repeater {
+                                    model: [
+                                        { icon: "󰒲", label: "Saver", tip: "Screensaver", action: "saver" },
+                                        { icon: "󰌾", label: "Lock", tip: "Lock", action: "lock" },
+                                        { icon: "󰍃", label: "Logout", tip: "Logout", action: "logout" },
+                                        { icon: "󰜉", label: "Reboot", tip: "Reboot", action: "reboot" },
+                                        { icon: "󰐥", label: "Off", tip: "Shutdown", action: "shutdown" }
+                                    ]
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: Style.space(4)
+                                        BorderSurface {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: Style.space(42)
+                                            radius: Style.space(6)
+                                            color: Util.alpha(Color.foreground, 0.04)
+                                            borderSpec: Border.surfaceSpec("actions", "border", Util.alpha(Color.foreground, 0.10), 1)
+                                            // centered glyph
+                                            Label {
+                                                anchors.centerIn: parent
+                                                textFormat: Text.PlainText
+                                                text: modelData.icon
+                                                font.family: "JetBrainsMono Nerd Font"
+                                                font.pixelSize: Style.font.title
+                                                color: Color.foreground
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                enabled: service && !service.busy
+                                                onClicked: {
+                                                    if (modelData.action === "saver") service.triggerScreensaver()
+                                                    else if (modelData.action === "lock") service.lockScreen()
+                                                    else if (modelData.action === "logout") root.confirmAction = "logout"
+                                                    else if (modelData.action === "reboot") root.confirmAction = "reboot"
+                                                    else if (modelData.action === "shutdown") root.confirmAction = "shutdown"
+                                                }
+                                            }
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            textFormat: Text.PlainText
+                                            text: modelData.label
+                                            font.family: Style.font.family
+                                            font.pixelSize: Style.font.caption - 2
+                                            color: Color.muted
+                                            horizontalAlignment: Text.AlignHCenter
+                                        }
+                                    }
+                                }
+                            }
+                            // confirm row — hidden by default, only for Logout/Reboot/Off
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: root.confirmAction !== ""
+                                radius: Style.space(6)
+                                color: Util.alpha(Color.urgent, 0.10)
+                                border.color: Util.alpha(Color.urgent, 0.30)
+                                border.width: 1
+                                implicitHeight: confirmRow.implicitHeight + Style.space(8)
+                                RowLayout {
+                                    id: confirmRow
+                                    anchors.fill: parent
+                                    anchors.margins: Style.space(6)
+                                    spacing: Style.space(6)
+                                    Label {
+                                        Layout.fillWidth: true
+                                        textFormat: Text.PlainText
+                                        text: root.confirmAction === "logout" ? "Logout now?" : root.confirmAction === "reboot" ? "Reboot now?" : root.confirmAction === "shutdown" ? "Shutdown now?" : ""
+                                        font.family: Style.font.family
+                                        font.pixelSize: Style.font.caption
+                                        color: Color.urgent
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Button {
+                                        text: "Cancel"
+                                        fontSize: Style.font.caption
+                                        onClicked: root.confirmAction = ""
+                                    }
+                                    Button {
+                                        text: "Confirm"
+                                        fontSize: Style.font.caption
+                                        onClicked: {
+                                            var a = root.confirmAction
+                                            root.confirmAction = ""
+                                            if (!service) return
+                                            if (a === "logout") service.logout()
+                                            else if (a === "reboot") service.reboot()
+                                            else if (a === "shutdown") service.shutdown()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // ── Timings section ──
                     Rectangle {
@@ -620,160 +759,6 @@ Panel {
                             spacing: Style.space(8)
                             Label { textFormat: Text.PlainText; text: "󰒋"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: Style.font.body; color: Color.muted }
                             Label { Layout.fillWidth: true; textFormat: Text.PlainText; text: "No lid detected — lid settings hidden on desktop"; font.pixelSize: Style.font.caption; color: Color.muted; wrapMode: Text.Wrap }
-                        }
-                    }
-
-                    // ── Actions (5 icon buttons) ──
-                    property string confirmAction: ""
-                    Rectangle {
-                        Layout.fillWidth: true
-                        radius: Style.space(6)
-                        color: Util.alpha(Color.foreground, 0.02)
-                        border.color: Util.alpha(Color.foreground, 0.06)
-                        border.width: 1
-                        implicitHeight: actionsCol.implicitHeight + Style.space(12)
-                        ColumnLayout {
-                            id: actionsCol
-                            anchors.fill: parent
-                            anchors.margins: Style.space(8)
-                            spacing: Style.space(6)
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Style.space(4)
-                                Label {
-                                    Layout.fillWidth: true
-                                    textFormat: Text.PlainText
-                                    text: "Actions"
-                                    font.family: Style.font.family
-                                    font.pixelSize: Style.font.caption
-                                    font.bold: true
-                                    color: Color.foreground
-                                }
-                                Label {
-                                    textFormat: Text.PlainText
-                                    text: "󰐦"
-                                    font.family: "JetBrainsMono Nerd Font"
-                                    font.pixelSize: Style.font.caption
-                                    color: Color.muted
-                                    opacity: 0.6
-                                }
-                            }
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 5
-                                columnSpacing: Style.space(6)
-                                rowSpacing: Style.space(6)
-                                Button {
-                                    iconText: "󰒲"
-                                    fontFamily: "JetBrainsMono Nerd Font"
-                                    fontSize: Style.font.body + 2
-                                    tooltipText: "Screensaver"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Style.space(36)
-                                    enabled: service && !service.busy
-                                    onClicked: if (service) service.triggerScreensaver()
-                                }
-                                Button {
-                                    iconText: "󰌾"
-                                    fontFamily: "JetBrainsMono Nerd Font"
-                                    fontSize: Style.font.body + 2
-                                    tooltipText: "Lock"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Style.space(36)
-                                    enabled: service && !service.busy
-                                    onClicked: if (service) service.lockScreen()
-                                }
-                                Button {
-                                    iconText: "󰍃"
-                                    fontFamily: "JetBrainsMono Nerd Font"
-                                    fontSize: Style.font.body + 2
-                                    tooltipText: "Logout"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Style.space(36)
-                                    enabled: service && !service.busy
-                                    onClicked: root.confirmAction = "logout"
-                                }
-                                Button {
-                                    iconText: "󰜉"
-                                    fontFamily: "JetBrainsMono Nerd Font"
-                                    fontSize: Style.font.body + 2
-                                    tooltipText: "Reboot"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Style.space(36)
-                                    enabled: service && !service.busy
-                                    onClicked: root.confirmAction = "reboot"
-                                }
-                                Button {
-                                    iconText: "󰐥"
-                                    fontFamily: "JetBrainsMono Nerd Font"
-                                    fontSize: Style.font.body + 2
-                                    tooltipText: "Shutdown"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Style.space(36)
-                                    enabled: service && !service.busy
-                                    onClicked: root.confirmAction = "shutdown"
-                                }
-                            }
-                            // labels under icons
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Style.space(6)
-                                Repeater {
-                                    model: ["Saver","Lock","Logout","Reboot","Off"]
-                                    delegate: Label {
-                                        required property string modelData
-                                        Layout.fillWidth: true
-                                        textFormat: Text.PlainText
-                                        text: modelData
-                                        font.family: Style.font.family
-                                        font.pixelSize: Style.font.caption - 2
-                                        color: Color.muted
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                }
-                            }
-                            // confirm row
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.confirmAction !== ""
-                                radius: Style.space(6)
-                                color: Util.alpha(Color.urgent, 0.10)
-                                border.color: Util.alpha(Color.urgent, 0.30)
-                                border.width: 1
-                                implicitHeight: confirmRow.implicitHeight + Style.space(8)
-                                RowLayout {
-                                    id: confirmRow
-                                    anchors.fill: parent
-                                    anchors.margins: Style.space(6)
-                                    spacing: Style.space(6)
-                                    Label {
-                                        Layout.fillWidth: true
-                                        textFormat: Text.PlainText
-                                        text: root.confirmAction === "logout" ? "Logout now?" : root.confirmAction === "reboot" ? "Reboot now?" : root.confirmAction === "shutdown" ? "Shutdown now?" : ""
-                                        font.family: Style.font.family
-                                        font.pixelSize: Style.font.caption
-                                        color: Color.urgent
-                                        wrapMode: Text.Wrap
-                                    }
-                                    Button {
-                                        text: "Cancel"
-                                        fontSize: Style.font.caption
-                                        onClicked: root.confirmAction = ""
-                                    }
-                                    Button {
-                                        text: "Confirm"
-                                        fontSize: Style.font.caption
-                                        onClicked: {
-                                            var a = root.confirmAction
-                                            root.confirmAction = ""
-                                            if (!service) return
-                                            if (a === "logout") service.logout()
-                                            else if (a === "reboot") service.reboot()
-                                            else if (a === "shutdown") service.shutdown()
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
 
