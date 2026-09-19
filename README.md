@@ -10,7 +10,7 @@ Centralize Omarchy power & idle options — screensaver, display-off, auto-lock,
 - **Idle & Suspend** — `IdleAction` (`ignore` / `suspend` / `suspend-then-hibernate` / `hibernate` / `poweroff` / `lock`) + `IdleActionSec` via `/etc/systemd/logind.conf.d/10-omarchy-power-managment.conf` drop-in (explicit `pkexec` on Apply)
 - **Lid** — 󰒋 `HandleLidSwitch` (on battery), `HandleLidSwitchExternalPower` (on AC), `HandleLidSwitchDocked` — `ignore / suspend / hibernate / poweroff / lock`; auto-hidden on desktop (`lid-is-present: no` via `upower -d`, `/sys/class/power_supply/BAT*`)
 - **Battery-aware** — `On Battery` section hidden on desktop, `isLaptop` detection via `upower` + `sysfs`; `powerprofilesctl get` shown in header (`performance` / `balanced` / `power-saver`)
-- **Bar widget** — 󰥔 (or 󰁹 on battery, 󰅺 if hypridle down) + tooltip `saver · lock · lid` — click to toggle panel
+- **Bar widget** — 󰐦 (or 󰁹 on battery, 󰅺 if hypridle down) + tooltip `saver · lock · lid` — click to toggle panel
 - **No PII** — no homelab data, no telemetry, local-only, validates `0–7200s` + enum lid actions
 
 ## Installation
@@ -46,6 +46,10 @@ sudo pacman -S --needed hypridle hyprlock power-profiles-daemon upower python3 p
 - `upower` + `power-profiles-daemon` — laptop/desktop detection
 - `python3` — helpers (`bin/omarchy-power-managment-*`)
 - `polkit` (`pkexec`) — privileged writes to `/etc/systemd/logind.conf.d`
+
+## Features
+
+- **Actions** — 󰒲 Screensaver, 󰌾 Lock, 󰍃 Logout (confirm), 󰜉 Reboot (confirm), 󰐥 Shutdown (confirm) — 5 icon buttons in panel
 
 ## Usage
 
