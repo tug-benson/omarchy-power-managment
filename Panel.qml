@@ -231,6 +231,8 @@ Panel {
                                 columns: 5
                                 columnSpacing: Style.space(6)
                                 rowSpacing: Style.space(6)
+                                uniformCellWidths: true
+                                uniformCellHeights: true
                                 Repeater {
                                     model: [
                                         { icon: "󰒲", label: "Saver", tip: "Screensaver", action: "saver" },
