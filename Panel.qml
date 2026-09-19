@@ -689,9 +689,9 @@ Panel {
                                 }
                                 Label {
                                     textFormat: Text.PlainText
-                                    text: service ? service.handleLidSwitch : ""
+                                    text: service ? (service.ignoreLid ? "󰌢 Ignore" : service.handleLidSwitch) : ""
                                     font.pixelSize: Style.font.caption -1
-                                    color: Color.muted
+                                    color: service && service.ignoreLid ? Color.accent : Color.muted
                                     opacity: 0.7
                                 }
                             }
@@ -699,6 +699,38 @@ Panel {
                                 Layout.fillWidth: true
                                 visible: !root.lidCollapsed
                                 spacing: Style.space(6)
+                                Toggle {
+                                    label: "Ignore Lid Close"
+                                    description: service && service.ignoreLid ? "󰌢 Inhibited — close → power-saver, open restores" : "Lid close suspends (logind)"
+                                    checked: service ? service.ignoreLid : false
+                                    enabled: service && service.lidPresent && !service.busy
+                                    Layout.fillWidth: true
+                                    onClicked: if (service) service.toggleIgnoreLid()
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: service && service.ignoreLid
+                                    radius: Style.space(4)
+                                    color: Util.alpha(Color.accent, 0.08)
+                                    border.color: Util.alpha(Color.accent, 0.20)
+                                    border.width: 1
+                                    implicitHeight: lidPowerNote.implicitHeight + Style.space(8)
+                                    Label {
+                                        id: lidPowerNote
+                                        anchors.fill: parent
+                                        anchors.margins: Style.space(6)
+                                        textFormat: Text.PlainText
+                                        text: service && service.lidClosed ? "Lid closed — power-saver active (profile saved)" : "While on, closing lid selects power-saver"
+                                        font.pixelSize: Style.font.caption -1; color: Color.accent; wrapMode: Text.Wrap
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: service && service.ignoreLid
+                                    textFormat: Text.PlainText
+                                    text: "Logind lid settings below are overridden while inhibited"
+                                    font.pixelSize: Style.font.caption -2; color: Color.muted; opacity: 0.6; wrapMode: Text.Wrap
+                                }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Style.space(6)
@@ -708,6 +740,7 @@ Panel {
                                         value: root.editLid
                                         options: root.lidOptions
                                         showLabel: false
+                                        enabled: service ? !service.ignoreLid : true
                                         onChanged: function(v){ root.editLid = v }
                                     }
                                 }
@@ -720,6 +753,7 @@ Panel {
                                         value: root.editLidExt
                                         options: root.lidOptions
                                         showLabel: false
+                                        enabled: service ? !service.ignoreLid : true
                                         onChanged: function(v){ root.editLidExt = v }
                                     }
                                 }
@@ -732,14 +766,15 @@ Panel {
                                         value: root.editLidDocked
                                         options: root.lidOptions
                                         showLabel: false
+                                        enabled: service ? !service.ignoreLid : true
                                         onChanged: function(v){ root.editLidDocked = v }
                                     }
                                 }
                                 Button {
                                     Layout.fillWidth: true
+                                    enabled: service ? (!service.ignoreLid && !service.busy) : false
                                     text: service && service.busy ? "Applying…" : "Apply lid (pkexec)"
                                     fontSize: Style.font.caption
-                                    enabled: service && !service.busy
                                     onClicked: if (service) service.setLidActions(root.editLid, root.editLidExt, root.editLidDocked)
                                 }
                             }

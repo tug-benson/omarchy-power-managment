@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 
 Item {
     id: root
@@ -37,6 +38,22 @@ Item {
     property bool busy: false
     property double lastRefresh: 0
 
+    // ── Lid suspend inhibitor (chupe logic, adapted) ──
+    readonly property string lidFlagName: "lid-suspend-off"
+    readonly property string togglesDir: Quickshell.env("HOME") + "/.local/state/omarchy/toggles"
+    readonly property string lidFlagPath: togglesDir + "/" + lidFlagName
+    readonly property string inhibitUnit: "io.github.tug-benson.power-managment-inhibit.service"
+
+    property bool ignoreLid: false
+    property bool lidStateLoaded: false
+    property bool lidClosed: false
+    property bool hasPendingWrite: false
+    property bool pendingWrite: false
+    property string pendingLidAction: ""
+    property bool inhibitorHeld: false
+    property bool inhibitorSyncPending: false
+    property bool lidInhibitorStateLoaded: false
+
     readonly property int maxOutputBytes: 65536
 
     function scriptPath(name) {
@@ -46,6 +63,8 @@ Item {
     Component.onCompleted: {
         refresh()
         pollTimer.start()
+        refreshLidFlag()
+        refreshLidState()
     }
 
     Timer {
@@ -59,6 +78,66 @@ Item {
         if (!hypridleProc.running) hypridleProc.running = true
         if (!logindProc.running) logindProc.running = true
         if (!upowerProc.running) upowerProc.running = true
+        refreshLidFlag()
+        refreshLidState()
+    }
+
+    // ── Lid inhibitor helpers (chupe) ──
+    function refreshLidFlag() { if (!lidStateProbe.running) lidStateProbeSync.running = true }
+    function setIgnoreLid(value) {
+        var enabled = !!value
+        root.ignoreLid = enabled
+        root.lidInhibitorStateLoaded = true
+        root.reconcileLidPowerProfile()
+        if (lidFlagWriter.running) {
+            root.pendingWrite = enabled
+            root.hasPendingWrite = true
+            return
+        }
+        runLidFlagWriter(enabled)
+    }
+    function toggleIgnoreLid() { setIgnoreLid(!root.ignoreLid) }
+    function runLidFlagWriter(enabled) {
+        lidFlagWriter.command = ["omarchy-toggle", root.lidFlagName, enabled ? "on" : "off"]
+        lidFlagWriter.running = true
+    }
+    function syncInhibitor() {
+        if (!lidInhibitorStateLoaded) return
+        if (inhibitorSync.running) { inhibitorSyncPending = true; return }
+        inhibitorSync.command = ["bash", root.scriptPath("inhibitor-control"), ignoreLid ? "hold" : "release"]
+        inhibitorSync.running = true
+    }
+    function refreshLidState() { lidUpowerProbe.running = true }
+    function desiredLidPowerAction() {
+        if (!lidInhibitorStateLoaded || !lidStateLoaded) return ""
+        return ignoreLid && lidClosed ? "close" : "open"
+    }
+    function reconcileLidPowerProfile() {
+        var action = desiredLidPowerAction()
+        if (action !== "") applyLidPowerProfile(action === "close")
+    }
+    function applyLidPowerProfile(closed) {
+        pendingLidAction = closed ? "close" : "open"
+        if (!lidPowerProfileProc.running) runPendingLidAction()
+    }
+    function runPendingLidAction() {
+        var action = pendingLidAction
+        pendingLidAction = ""
+        lidPowerProfileProc.command = ["bash", root.scriptPath("lid-power-profile"), action]
+        lidPowerProfileProc.running = true
+    }
+    function lidStatusJson() {
+        return JSON.stringify({
+            ignoreLid: root.ignoreLid,
+            stateLoaded: root.lidInhibitorStateLoaded,
+            flagPath: root.lidFlagPath,
+            inhibitUnit: root.inhibitUnit,
+            inhibitorHeld: root.inhibitorHeld,
+            lidClosed: root.lidClosed,
+            lidStateLoaded: root.lidStateLoaded,
+            lidPresent: root.lidPresent,
+            isLaptop: root.isLaptop
+        })
     }
 
     function formatSec(sec) {
@@ -153,6 +232,102 @@ Item {
             } catch (e) {
                 root.lastError = "upower parse failed: " + e
             }
+        }
+    }
+
+    // ── Lid inhibitor processes (chupe) ──
+    Process {
+        id: lidStateProbeSync
+        command: ["bash", "-c", "mkdir -p \"$1\"; [[ -f $1/$2 ]] && echo yes || echo no", "_", root.togglesDir, root.lidFlagName]
+        stdout: SplitParser {
+            onRead: function(line) {
+                root.ignoreLid = String(line).trim() === "yes"
+                root.lidInhibitorStateLoaded = true
+                root.reconcileLidPowerProfile()
+            }
+        }
+        onExited: function() {
+            togglesDirWatcher.reload()
+            root.syncInhibitor()
+        }
+    }
+    Process {
+        id: lidFlagWriter
+        onExited: function() {
+            if (root.hasPendingWrite) {
+                var pending = root.pendingWrite
+                root.hasPendingWrite = false
+                root.runLidFlagWriter(pending)
+                return
+            }
+            root.refreshLidFlag()
+        }
+    }
+    Process {
+        id: inhibitorSync
+        stdout: SplitParser {
+            onRead: function(line) { root.inhibitorHeld = String(line).trim() === "held" }
+        }
+        stderr: SplitParser {
+            onRead: function(line) { console.warn("power-managment: inhibitor", String(line).trim()) }
+        }
+        onExited: function() {
+            if (root.inhibitorSyncPending) {
+                root.inhibitorSyncPending = false
+                root.syncInhibitor()
+                return
+            }
+            if (root.inhibitorHeld !== root.ignoreLid) console.warn("power-managment: inhibitor", root.inhibitorHeld ? "held" : "released", "while flag is", root.ignoreLid ? "on" : "off")
+        }
+    }
+    Process {
+        id: lidUpowerProbe
+        command: ["busctl", "get-property", "org.freedesktop.UPower", "/org/freedesktop/UPower", "org.freedesktop.UPower", "LidIsClosed"]
+        stdout: SplitParser {
+            onRead: function(line) {
+                var closed = String(line).trim() === "b true"
+                if (!root.lidStateLoaded || root.lidClosed !== closed) {
+                    root.lidClosed = closed
+                    root.lidStateLoaded = true
+                    root.reconcileLidPowerProfile()
+                }
+            }
+        }
+    }
+    Process {
+        id: lidMonitor
+        command: ["dbus-monitor", "--system", "type='signal',sender='org.freedesktop.UPower',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/freedesktop/UPower'"]
+        running: true
+        stdout: SplitParser {
+            onRead: function(line) {
+                if (String(line).indexOf('"LidIsClosed"') !== -1) root.refreshLidState()
+            }
+        }
+        stderr: SplitParser {
+            onRead: function(line) { console.warn("power-managment: lid monitor", String(line).trim()) }
+        }
+    }
+    Process {
+        id: lidPowerProfileProc
+        stderr: SplitParser {
+            onRead: function(line) { console.warn("power-managment: power-profile", String(line).trim()) }
+        }
+        onExited: function() {
+            if (root.pendingLidAction !== "") root.runPendingLidAction()
+        }
+    }
+    FileView {
+        id: togglesDirWatcher
+        path: root.togglesDir
+        watchChanges: true
+        printErrors: false
+        onFileChanged: root.refreshLidFlag()
+    }
+    Connections {
+        target: PowerProfiles
+        function onProfileChanged() {
+            if (root.lidInhibitorStateLoaded && root.ignoreLid && root.lidStateLoaded && root.lidClosed && PowerProfiles.profile !== PowerProfile.PowerSaver)
+                root.applyLidPowerProfile(true)
         }
     }
 
@@ -308,5 +483,13 @@ Item {
     function shutdown() {
         powerProc.command = ["omarchy-system-shutdown"]
         powerProc.running = true
+    }
+
+    IpcHandler {
+        target: "power-managment"
+        function status(): string { return root.lidStatusJson() }
+        function enable(): string { root.setIgnoreLid(true); return "enabled" }
+        function disable(): string { root.setIgnoreLid(false); return "disabled" }
+        function toggle(): string { root.toggleIgnoreLid(); return root.ignoreLid ? "enabled" : "disabled" }
     }
 }

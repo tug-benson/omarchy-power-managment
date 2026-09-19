@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: inhibitor-control hold|release"
+}
+
+mode=${1:-}
+case "$mode" in
+  hold | release) ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+state_tool="$script_dir/runtime_state.py"
+unit=io.github.tug-benson.power-managment-inhibit.service
+
+if [[ ${2:-} != --locked ]]; then
+  exec python3 "$state_tool" with-lock inhibitor.lock \
+    bash "$0" "$mode" --locked
+fi
+
+case "$mode" in
+  hold)
+    if ! systemctl --user is-active --quiet "$unit"; then
+      load_state=$(systemctl --user show --property=LoadState --value "$unit")
+      if [[ $load_state != not-found ]]; then
+        systemctl --user reset-failed "$unit"
+      fi
+      systemd-run --user --quiet --collect --unit="$unit" \
+        --description="Power Managment: Ignore Lid Close is on" \
+        systemd-inhibit --what=handle-lid-switch --who="Power Managment" \
+          --why="Ignore Lid Close is on" --mode=block sleep infinity
+    fi
+    ;;
+  release)
+    load_state=$(systemctl --user show --property=LoadState --value "$unit")
+    if [[ $load_state != not-found ]]; then
+      systemctl --user stop --quiet "$unit"
+    fi
+    ;;
+esac
+
+if systemctl --user is-active --quiet "$unit"; then
+  echo held
+else
+  echo released
+fi

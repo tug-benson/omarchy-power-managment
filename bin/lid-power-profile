@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: lid-power-profile close|open"
+}
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+state_tool="$script_dir/runtime_state.py"
+action=${1:-}
+
+case "$action" in
+  close | open)
+    if [[ ${2:-} != --locked ]]; then
+      exec python3 "$state_tool" with-lock power-profile.lock \
+        bash "$0" "$action" --locked
+    fi
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+case "$action" in
+  close)
+    if previous_profile=$(python3 "$state_tool" read previous-power-profile); then
+      :
+    else
+      status=$?
+      if ((status != 3)); then
+        exit "$status"
+      fi
+
+      previous_profile=$(powerprofilesctl get)
+      case "$previous_profile" in
+        power-saver | balanced | performance) ;;
+        *)
+          echo "Unsupported power profile: $previous_profile" >&2
+          exit 1
+          ;;
+      esac
+      python3 "$state_tool" write previous-power-profile "$previous_profile"
+    fi
+    powerprofilesctl set power-saver
+    ;;
+  open)
+    if previous_profile=$(python3 "$state_tool" read previous-power-profile); then
+      :
+    else
+      status=$?
+      if ((status == 3)); then
+        exit 0
+      fi
+      exit "$status"
+    fi
+
+    case "$previous_profile" in
+      power-saver | balanced | performance) ;;
+      *)
+        echo "Unsupported saved power profile: $previous_profile" >&2
+        exit 1
+        ;;
+    esac
+    powerprofilesctl set "$previous_profile"
+    python3 "$state_tool" remove previous-power-profile
+    ;;
+esac

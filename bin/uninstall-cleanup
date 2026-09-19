@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Cleanup for power-managment lid inhibitor — mirrors chupe's uninstall-cleanup
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+state_tool="$script_dir/runtime_state.py"
+unit=io.github.tug-benson.power-managment-inhibit.service
+flag="$HOME/.local/state/omarchy/toggles/lid-suspend-off"
+
+# Remove flag if it belongs to this plugin (shared with chupe)
+rm -f "$flag" 2>/dev/null || true
+
+# Stop inhibitor via locked control
+bash "$script_dir/inhibitor-control" release 2>/dev/null || systemctl --user stop --quiet "$unit" 2>/dev/null || true
+
+# Restore power profile if we were in a lid-close cycle
+bash "$script_dir/lid-power-profile" open 2>/dev/null || true
+
+# Clear runtime state
+python3 "$state_tool" remove previous-power-profile 2>/dev/null || true
+# Remove runtime locks if orphaned
+rm -rf "${XDG_RUNTIME_DIR:-/tmp}/io.github.tug-benson.power-managment" 2>/dev/null || true
+
+echo "power-managment lid cleanup done"
