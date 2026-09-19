@@ -156,7 +156,7 @@ Panel {
                             Layout.maximumWidth: Style.space(120)
                             Label {
                                 textFormat: Text.PlainText
-                                text: service ? ("󰔟  " + service.uptime) : "󰔟  --"
+                                text: service ? ("󱎫  " + service.uptime) : "󱎫  --"
                                 font.family: "JetBrainsMono Nerd Font"
                                 font.pixelSize: Style.font.caption - 1
                                 color: Color.muted
