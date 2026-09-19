@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""upower / powerprofiles probe — get lid/battery/power profile."""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+def run(cmd, timeout=3):
+    try:
+        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=timeout).strip()
+    except Exception:
+        return ""
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] != "get":
+        print("usage: get", file=sys.stderr); sys.exit(1)
+
+    lid_present = False
+    on_battery = False
+    battery_pct = 0
+    is_laptop = False
+
+    # upower -d
+    up = run(["upower", "-d"])
+    if up:
+        low = up.lower()
+        if "lid-is-present:          yes" in low or "lid-is-present: yes" in low:
+            lid_present = True
+        if "lid-is-present:          no" in low or "lid-is-present: no" in low:
+            lid_present = False
+        # fallback parse
+        if "lid-is-present" in low:
+            # extract line
+            for line in up.splitlines():
+                if "lid-is-present" in line.lower():
+                    if "yes" in line.lower():
+                        lid_present = True
+                    else:
+                        lid_present = False
+        if "on-battery:          yes" in low or "on-battery: yes" in low:
+            on_battery = True
+        # battery percentage
+        for line in up.splitlines():
+            if "percentage:" in line.lower():
+                try:
+                    pct = line.split(":")[-1].strip().replace("%","")
+                    battery_pct = int(float(pct))
+                except Exception:
+                    pass
+            # isLaptop heuristic: lid present or real battery device exists
+        try:
+            bats = list(Path("/sys/class/power_supply").glob("BAT*"))
+            has_bat = len(bats) > 0
+        except Exception:
+            has_bat = False
+        if lid_present or has_bat:
+            is_laptop = True
+    else:
+        # fallback sysfs when upower unavailable
+        try:
+            bats = list(Path("/sys/class/power_supply").glob("BAT*"))
+            if bats:
+                is_laptop = True
+        except Exception:
+            pass
+        # try logind lid?
+        lid = run(["cat", "/proc/acpi/button/lid/LID0/state"])
+        if "open" in lid.lower() or "closed" in lid.lower():
+            lid_present = True
+            is_laptop = True
+
+    # powerprofiles
+    profile = run(["powerprofilesctl", "get"])
+    if not profile:
+        profile = "balanced"
+    profile = profile.strip().lower()
+    if profile not in ("performance", "balanced", "power-saver"):
+        # try to keep original but normalize
+        if "power" in profile and "saver" in profile:
+            profile = "power-saver"
+        elif profile == "":
+            profile = "balanced"
+
+    print(json.dumps({
+        "lidPresent": lid_present,
+        "onBattery": on_battery,
+        "batteryPct": battery_pct,
+        "isLaptop": is_laptop,
+        "powerProfile": profile,
+    }))
+
+if __name__ == "__main__":
+    main()

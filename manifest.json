@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.tug-benson.power-managment",
+  "name": "Power Managment",
+  "version": "0.1.0",
+  "description": "Power & idle manager — screensaver, display-off, auto-lock, AC/battery suspend and lid-switch from the bar. Edits hypridle + logind drop-in via pkexec, auto-hides battery/lid on desktop.",
+  "author": "tug-benson",
+  "license": "MIT",
+  "repository": "https://github.com/tug-benson/omarchy-power-managment",
+  "homepage": "https://github.com/tug-benson/omarchy-power-managment",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Power Managment",
+    "description": "Screensaver / DPMS / lock / suspend / lid settings",
+    "category": "System",
+    "aliases": ["power", "idle", "screensaver", "lock", "dpms", "lid", "suspend", "sleep", "hypridle", "logind"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

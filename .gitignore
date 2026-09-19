@@ -1,0 +1,6 @@
+.tmp
+*.bak
+settings.json
+preview.png.bak
+__pycache__/
+*.pyc

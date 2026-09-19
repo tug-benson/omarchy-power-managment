@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""hypridle helper — get / set screensaver / displayOff / lock listeners.
+
+Screensaver:  pidof hyprlock || omarchy-launch-screensaver
+DisplayOff:   hyprctl dispatch dpms off  (with on-resume dpms on)
+Lock:         omarchy-system-lock
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HYPRIDLE_PATH = Path.home() / ".config/hypr/hypridle.conf"
+SCREENSAVER_CMD = "omarchy-launch-screensaver"
+LOCK_CMD = "omarchy-system-lock"
+DPMS_OFF = "dpms off"
+DPMS_ON = "dpms on"
+
+def is_hypridle_active():
+    try:
+        subprocess.check_call(["pgrep", "-x", "hypridle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        # also check systemctl --user
+        try:
+            out = subprocess.check_output(["systemctl", "--user", "is-active", "hypridle"], text=True).strip()
+            return out == "active"
+        except Exception:
+            return False
+
+def parse_hypridle(text):
+    """return dict with saver/display/lock secs and enabled flags."""
+    # defaults
+    saver = None
+    display = None
+    lock = None
+    # find listeners
+    # listener { timeout = 1800  on-timeout = ... }
+    listener_re = re.compile(r'listener\s*\{([^}]*)\}', re.DOTALL)
+    general_re = re.compile(r'general\s*\{([^}]*)\}', re.DOTALL)
+    for m in listener_re.finditer(text):
+        body = m.group(1)
+        t = re.search(r'timeout\s*=\s*(\d+)', body)
+        if not t:
+            continue
+        sec = int(t.group(1))
+        on_timeout = re.search(r'on-timeout\s*=\s*(.+)', body)
+        on_resume = re.search(r'on-resume\s*=\s*(.+)', body)
+        cmd = on_timeout.group(1).strip() if on_timeout else ""
+        resume = on_resume.group(1).strip() if on_resume else ""
+        # strip comments
+        cmd = cmd.split("#")[0].strip().strip('"').strip("'")
+        # detection
+        low = cmd.lower()
+        if "screensaver" in low or "ttfx" in low:
+            saver = sec
+        elif "dpms" in low and "off" in low:
+            display = sec
+        elif "lock" in low or "hyprlock" in low:
+            # avoid counting screensaver as lock
+            if "screensaver" not in low:
+                lock = sec
+        # also handle dpms via hyprctl dispatch dpms
+        # lock is omarchy-system-lock without screensaver
+    return saver, display, lock
+
+def get_state():
+    saver, display, lock = None, None, None
+    enabled_saver = True
+    enabled_display = False
+    enabled_lock = True
+    if HYPRIDLE_PATH.exists():
+        text = HYPRIDLE_PATH.read_text()
+        saver, display, lock = parse_hypridle(text)
+    # defaults if missing
+    if saver is None:
+        saver = 1800
+    if display is None:
+        display = 0
+        enabled_display = False
+    else:
+        enabled_display = True
+    if lock is None:
+        lock = 2700
+    return {
+        "screensaverSec": saver,
+        "displayOffSec": display,
+        "lockSec": lock,
+        "screensaverEnabled": enabled_saver and saver > 0,
+        "displayOffEnabled": enabled_display and display > 0,
+        "lockEnabled": enabled_lock and lock > 0,
+        "hypridleActive": is_hypridle_active(),
+    }
+
+def generate_hypridle(saver, display, lock):
+    """Generate canonical hypridle.conf content."""
+    lines = []
+    lines.append("general {")
+    lines.append("    lock_cmd = omarchy-system-lock                         # lock screen and 1password")
+    lines.append("    before_sleep_cmd = OMARCHY_LOCK_ONLY=true omarchy-system-lock    # lock before suspend")
+    lines.append("    after_sleep_cmd = sleep 1 && omarchy-system-wake")
+    lines.append("    inhibit_sleep = 3")
+    lines.append("}")
+    lines.append("")
+    if saver and saver > 0:
+        lines.append("# Start screensaver")
+        lines.append("listener {")
+        lines.append(f"    timeout = {saver}")
+        lines.append("    on-timeout = pidof hyprlock || omarchy-launch-screensaver")
+        lines.append("}")
+        lines.append("")
+    if display and display > 0:
+        lines.append("# Turn off display (DPMS)")
+        lines.append("listener {")
+        lines.append(f"    timeout = {display}")
+        lines.append("    on-timeout = hyprctl dispatch dpms off")
+        lines.append("    on-resume = hyprctl dispatch dpms on")
+        lines.append("}")
+        lines.append("")
+    if lock and lock > 0:
+        lines.append("# Lock system")
+        lines.append("listener {")
+        lines.append(f"    timeout = {lock}")
+        lines.append("    on-timeout = omarchy-system-lock")
+        lines.append("    on-resume = omarchy-system-wake")
+        lines.append("}")
+        lines.append("")
+    # ensure trailing newline
+    return "\n".join(lines)
+
+def atomic_write(path: Path, content: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # backup
+    if path.exists():
+        bak = path.with_suffix(path.suffix + ".bak")
+        try:
+            shutil.copy2(path, bak)
+        except Exception:
+            pass
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp.")
+    try:
+        os.write(fd, content.encode())
+        os.fsync(fd)
+        os.close(fd)
+        os.rename(tmp, path)
+        # fsync dir
+        try:
+            dfd = os.open(str(path.parent), os.O_DIRECTORY)
+            os.fsync(dfd)
+            os.close(dfd)
+        except Exception:
+            pass
+        os.chmod(path, 0o600)
+    finally:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+def reload_hypridle():
+    # try hyprctl reload, then systemctl --user restart hypridle, then pkill USR1
+    for cmd in [
+        ["hyprctl", "reload"],
+        ["systemctl", "--user", "try-restart", "hypridle.service"],
+        ["pkill", "-USR1", "hypridle"],
+    ]:
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        except Exception:
+            pass
+
+def main():
+    if len(sys.argv) < 2:
+        print("usage: get|set-screensaver <sec>|set-displayoff <sec>|set-lock <sec>|set-all <s> <d> <l>", file=sys.stderr)
+        sys.exit(1)
+    cmd = sys.argv[1]
+    if cmd == "get":
+        state = get_state()
+        print(json.dumps(state))
+        return
+    # for set commands, need to read current then update one value
+    state = get_state()
+    saver = state["screensaverSec"]
+    display = state["displayOffSec"]
+    lock = state["lockSec"]
+    if cmd == "set-screensaver":
+        if len(sys.argv) != 3:
+            print("need sec", file=sys.stderr); sys.exit(1)
+        saver = int(sys.argv[2])
+        if saver < 0 or saver > 7200:
+            print("invalid value", file=sys.stderr); sys.exit(1)
+    elif cmd == "set-displayoff":
+        if len(sys.argv) != 3:
+            print("need sec", file=sys.stderr); sys.exit(1)
+        display = int(sys.argv[2])
+        if display < 0 or display > 7200:
+            print("invalid value", file=sys.stderr); sys.exit(1)
+    elif cmd == "set-lock":
+        if len(sys.argv) != 3:
+            print("need sec", file=sys.stderr); sys.exit(1)
+        lock = int(sys.argv[2])
+        if lock < 0 or lock > 7200:
+            print("invalid value", file=sys.stderr); sys.exit(1)
+    elif cmd == "set-all":
+        if len(sys.argv) != 5:
+            print("need 3 values", file=sys.stderr); sys.exit(1)
+        saver = int(sys.argv[2]); display = int(sys.argv[3]); lock = int(sys.argv[4])
+        for v in (saver, display, lock):
+            if v < 0 or v > 7200:
+                print("invalid value", file=sys.stderr); sys.exit(1)
+    else:
+        print(f"unknown cmd {cmd}", file=sys.stderr); sys.exit(1)
+
+    content = generate_hypridle(saver if saver != 0 else 0, display if display != 0 else 0, lock if lock != 0 else 0)
+    atomic_write(HYPRIDLE_PATH, content)
+    reload_hypridle()
+    print(json.dumps({"ok": True, "screensaverSec": saver, "displayOffSec": display, "lockSec": lock}))
+
+if __name__ == "__main__":
+    main()
