@@ -237,16 +237,16 @@ Item {
         }
     }
 
-    // ── Uptime probe ──
+    // ── Uptime probe (abbreviated) ──
     Process {
         id: uptimeProc
-        command: ["bash", "-lc", "uptime -p 2>/dev/null | sed 's/^up //' | cut -c1-40 || awk '{printf \"%dd %dh %dm\", $1/86400, ($1%86400)/3600, ($1%3600)/60}' /proc/uptime | cut -c1-40"]
+        command: ["bash", "-lc", "uptime -p 2>/dev/null | sed -e 's/^up //' -e 's/ hours,/h/' -e 's/ hour,/h/' -e 's/ minutes/m/' -e 's/ minute/m/' -e 's/ hours/h/' -e 's/ hour/h/' | cut -c1-30 || awk '{printf \"%dd %dh %dm\", $1/86400, ($1%86400)/3600, ($1%3600)/60}' /proc/uptime | cut -c1-30"]
         stdout: StdioCollector { id: uptimeOut; waitForEnd: true }
         stderr: StdioCollector { waitForEnd: true }
         onExited: function(code) {
             if (code === 0) {
                 var t = uptimeOut.text.trim()
-                if (t) root.uptime = t.substring(0, 40)
+                if (t) root.uptime = t.substring(0, 30)
             }
         }
     }

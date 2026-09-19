@@ -90,7 +90,7 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: keyCatcher
-        contentWidth: Style.space(380)
+        contentWidth: Style.space(400)
         contentHeight: panel.fittedContentHeight(flick.contentHeight + Style.space(16))
 
         PanelKeyCatcher {
@@ -116,12 +116,12 @@ Panel {
                     // ── Header ──
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Style.space(8)
+                        spacing: Style.space(6)
                         Label {
                             textFormat: Text.PlainText
                             text: "󰐦"
                             font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: Style.space(28)
+                            font.pixelSize: Style.space(26)
                             color: Color.accent
                             Layout.alignment: Qt.AlignVCenter
                             verticalAlignment: Text.AlignVCenter
@@ -136,6 +136,8 @@ Panel {
                                 font.pixelSize: Style.font.title + 1
                                 font.bold: true
                                 color: Color.foreground
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
                             Label {
                                 textFormat: Text.PlainText
@@ -143,11 +145,15 @@ Panel {
                                 font.family: Style.font.family
                                 font.pixelSize: Style.font.caption
                                 color: Color.muted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
                         }
                         ColumnLayout {
                             spacing: Style.space(2)
                             Layout.alignment: Qt.AlignTop
+                            Layout.preferredWidth: Style.space(110)
+                            Layout.maximumWidth: Style.space(120)
                             Label {
                                 textFormat: Text.PlainText
                                 text: service ? ("󰔟  " + service.uptime) : "󰔟  --"
@@ -156,6 +162,8 @@ Panel {
                                 color: Color.muted
                                 horizontalAlignment: Text.AlignRight
                                 Layout.alignment: Qt.AlignRight
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                             }
                             Button {
                                 iconText: ""
