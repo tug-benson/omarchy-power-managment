@@ -8,10 +8,10 @@ Centralize Omarchy power & idle options — screensaver, display-off, auto-lock,
 
 - **Timings** — 󰒲 Screensaver, 󰍹 Display off (DPMS), 󰌾 Auto-lock — sliders + dropdown `Never / 1m … 120m`, edits `~/.config/hypr/hypridle.conf` (atomic write, `.bak`), live `hyprctl reload` / `systemctl --user try-restart hypridle`
 - **Idle & Suspend** — `IdleAction` (`ignore` / `suspend` / `suspend-then-hibernate` / `hibernate` / `poweroff` / `lock`) + `IdleActionSec` via `/etc/systemd/logind.conf.d/10-omarchy-power-managment.conf` drop-in (explicit `pkexec` on Apply)
-- **Lid** — 󰒋 `HandleLidSwitch` (on battery), `HandleLidSwitchExternalPower` (on AC), `HandleLidSwitchDocked` — `ignore / suspend / hibernate / poweroff / lock`; auto-hidden on desktop (`lid-is-present: no` via `upower -d`, `/sys/class/power_supply/BAT*`)
+- **Lid (chupe/omarchy-lid-suspend port)** — 󰌢 `Ignore Lid Close` toggle via `~/.local/state/omarchy/toggles/lid-suspend-off` (`omarchy-toggle lid-suspend-off`), transient `systemd-inhibit --what=handle-lid-switch` (`io.github.tug-benson.power-managment-inhibit.service`), UPower `LidIsClosed` via `dbus-monitor`/`busctl`, power-profile switch `power-saver` on close / restore on open (`powerprofilesctl`, `XDG_RUNTIME_DIR/io.github.tug-benson.power-managment/previous-power-profile`, `runtime_state.py` 0700/0600, `fsync` + atomic replace, `flock` locks). Complements logind `HandleLidSwitch*` dropdowns (On battery/On AC/Docked `ignore/suspend/hibernate/poweroff/lock`, `pkexec` drop-in); `Ignore` overrides logind (inhibitor blocks suspend) and lid section shows power-saver note. Auto-hidden on desktop (`lid-is-present: no`). Credits: [chupe/omarchy-lid-suspend](https://github.com/chupe/omarchy-lid-suspend) (MIT).
 - **Battery-aware** — `On Battery` section hidden on desktop, `isLaptop` detection via `upower` + `sysfs`; `powerprofilesctl get` shown in header (`performance` / `balanced` / `power-saver`)
 - **Bar widget** — 󰐦 (or 󰁹 on battery, 󰅺 if hypridle down) + tooltip `saver · lock · lid` — click to toggle panel
-- **No PII** — no homelab data, no telemetry, local-only, validates `0–7200s` + enum lid actions
+- **No PII** — no homelab data, no telemetry, local-only, validates `0–7200s` + enum lid actions; runtime state under `$XDG_RUNTIME_DIR` 0700, no symlink following
 
 ## Installation
 
