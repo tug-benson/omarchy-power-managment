@@ -33,6 +33,7 @@ Item {
     property string powerProfile: "balanced"
 
     property bool hypridleActive: false
+    property string uptime: "--"
     property string lastError: ""
     property string lastInfo: ""
     property bool busy: false
@@ -78,6 +79,7 @@ Item {
         if (!hypridleProc.running) hypridleProc.running = true
         if (!logindProc.running) logindProc.running = true
         if (!upowerProc.running) upowerProc.running = true
+        if (!uptimeProc.running) uptimeProc.running = true
         refreshLidFlag()
         refreshLidState()
     }
@@ -231,6 +233,20 @@ Item {
                 root.powerProfile = j.powerProfile || "balanced"
             } catch (e) {
                 root.lastError = "upower parse failed: " + e
+            }
+        }
+    }
+
+    // ── Uptime probe ──
+    Process {
+        id: uptimeProc
+        command: ["bash", "-lc", "uptime -p 2>/dev/null | sed 's/^up //' | cut -c1-40 || awk '{printf \"%dd %dh %dm\", $1/86400, ($1%86400)/3600, ($1%3600)/60}' /proc/uptime | cut -c1-40"]
+        stdout: StdioCollector { id: uptimeOut; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: function(code) {
+            if (code === 0) {
+                var t = uptimeOut.text.trim()
+                if (t) root.uptime = t.substring(0, 40)
             }
         }
     }

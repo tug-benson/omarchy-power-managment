@@ -38,7 +38,7 @@ Panel {
 
     property bool timingsCollapsed: true
     property bool idleCollapsed: true
-    property bool lidCollapsed: false
+    property bool lidCollapsed: true
     property string confirmAction: ""
 
     readonly property var timeOptions: [
@@ -145,13 +145,27 @@ Panel {
                                 color: Color.muted
                             }
                         }
-                        Button {
-                            iconText: ""
-                            fontFamily: "JetBrainsMono Nerd Font"
-                            fontSize: Style.font.caption
-                            tooltipText: "Refresh"
-                            Layout.preferredWidth: Style.space(26)
-                            onClicked: { if (service) service.refresh(); root.syncFromService() }
+                        ColumnLayout {
+                            spacing: Style.space(2)
+                            Layout.alignment: Qt.AlignTop
+                            Label {
+                                textFormat: Text.PlainText
+                                text: service ? ("󰔟  " + service.uptime) : "󰔟  --"
+                                font.family: "JetBrainsMono Nerd Font"
+                                font.pixelSize: Style.font.caption - 1
+                                color: Color.muted
+                                horizontalAlignment: Text.AlignRight
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Button {
+                                iconText: ""
+                                fontFamily: "JetBrainsMono Nerd Font"
+                                fontSize: Style.font.caption
+                                tooltipText: "Refresh"
+                                Layout.preferredWidth: Style.space(26)
+                                Layout.alignment: Qt.AlignRight
+                                onClicked: { if (service) service.refresh(); root.syncFromService() }
+                            }
                         }
                     }
 
@@ -701,7 +715,7 @@ Panel {
                                 spacing: Style.space(6)
                                 Toggle {
                                     label: "Ignore Lid Close"
-                                    description: service && service.ignoreLid ? "󰌢 Inhibited — close → power-saver, open restores" : "Lid close suspends (logind)"
+                                    description: service && service.ignoreLid ? "󰌢  Inhibited — close → power-saver, open restores" : "Lid close suspends (logind)"
                                     checked: service ? service.ignoreLid : false
                                     enabled: service && service.lidPresent && !service.busy
                                     Layout.fillWidth: true
