@@ -250,7 +250,7 @@ Panel {
                                             Layout.preferredHeight: Style.space(42)
                                             radius: Style.space(6)
                                             color: Util.alpha(Color.foreground, 0.04)
-                                            borderSpec: Border.surfaceSpec("actions", "border", Util.alpha(Color.foreground, 0.10), 1)
+                                            borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, 1)
                                             // centered glyph
                                             Label {
                                                 anchors.centerIn: parent
