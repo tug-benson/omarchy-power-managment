@@ -36,8 +36,8 @@ Panel {
     property string editLidExt: "suspend"
     property string editLidDocked: "ignore"
 
-    property bool timingsCollapsed: false
-    property bool idleCollapsed: false
+    property bool timingsCollapsed: true
+    property bool idleCollapsed: true
     property bool lidCollapsed: false
     property string confirmAction: ""
 
@@ -146,7 +146,7 @@ Panel {
                             }
                         }
                         Button {
-                            iconText: ""
+                            iconText: ""
                             fontFamily: "JetBrainsMono Nerd Font"
                             fontSize: Style.font.caption
                             tooltipText: "Refresh"
