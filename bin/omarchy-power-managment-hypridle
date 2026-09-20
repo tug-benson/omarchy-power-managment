@@ -16,10 +16,37 @@ from pathlib import Path
 
 HYPRIDLE_PATH = Path.home() / ".config/hypr/hypridle.conf"
 SHELL_JSON = Path.home() / ".config/omarchy/shell.json"
+TOGGLES_DIR = Path.home() / ".local/state/omarchy/toggles"
+SCREENSAVER_TOGGLE = TOGGLES_DIR / "screensaver-off"
+SCREENSAVER_NEVER_SENTINEL = 31536000  # 1 year, effectively Never
 SCREENSAVER_CMD = "omarchy-launch-screensaver"
 LOCK_CMD = "omarchy-system-lock"
 DPMS_OFF = "dpms off"
 DPMS_ON = "dpms on"
+
+def is_screensaver_disabled():
+    try:
+        return SCREENSAVER_TOGGLE.exists()
+    except Exception:
+        return False
+
+def set_screensaver_toggle(disabled: bool):
+    try:
+        # Use omarchy-toggle if available, fallback to direct file
+        if disabled:
+            subprocess.run(["omarchy-toggle", "screensaver-off", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            if not SCREENSAVER_TOGGLE.exists():
+                TOGGLES_DIR.mkdir(parents=True, exist_ok=True)
+                SCREENSAVER_TOGGLE.touch(exist_ok=True)
+        else:
+            subprocess.run(["omarchy-toggle", "screensaver-off", "off"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            try:
+                if SCREENSAVER_TOGGLE.exists():
+                    SCREENSAVER_TOGGLE.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def is_hypridle_active():
     # Quattro uses omarchy-shell idle service, not hypridle binary.
@@ -112,9 +139,19 @@ def write_shell_idle(saver, lock):
         if "idle" not in data or not isinstance(data["idle"], dict):
             data["idle"] = {}
         if saver is not None:
-            data["idle"]["screensaver"] = int(saver)
+            if int(saver) == 0:
+                set_screensaver_toggle(True)
+                # write sentinel large value to avoid IdleModel 0 immediate trigger
+                data["idle"]["screensaver"] = SCREENSAVER_NEVER_SENTINEL
+            else:
+                set_screensaver_toggle(False)
+                data["idle"]["screensaver"] = int(saver)
         if lock is not None:
-            data["idle"]["lock"] = int(lock)
+            if int(lock) == 0:
+                # No toggle for lock; use sentinel large value for Never
+                data["idle"]["lock"] = SCREENSAVER_NEVER_SENTINEL
+            else:
+                data["idle"]["lock"] = int(lock)
         # atomic write
         SHELL_JSON.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(SHELL_JSON.parent), prefix="shell.json.tmp.")
@@ -145,31 +182,60 @@ def get_state():
     enabled_lock = True
     # Prefer shell.json (Quattro) over hypridle.conf
     shell_saver, shell_lock = read_shell_idle()
+    # Auto-fix legacy 0 values (immediate trigger) to sentinel + toggle
+    if shell_saver == 0 and not is_screensaver_disabled():
+        # Migrate legacy Never (0) to proper toggle + sentinel
+        set_screensaver_toggle(True)
+        write_shell_idle(0, None)
+        shell_saver = SCREENSAVER_NEVER_SENTINEL
+    if shell_lock == 0:
+        # No toggle for lock, migrate to sentinel
+        write_shell_idle(None, 0)
+        shell_lock = SCREENSAVER_NEVER_SENTINEL
     if HYPRIDLE_PATH.exists():
         text = HYPRIDLE_PATH.read_text()
         saver, display, lock = parse_hypridle(text)
-    # override with shell.json if present
-    if shell_saver is not None:
-        saver = shell_saver
+    # override with shell.json if present, but handle Never sentinel and toggle
+    if is_screensaver_disabled():
+        saver = 0
+        enabled_saver = False
+    elif shell_saver is not None:
+        if shell_saver == SCREENSAVER_NEVER_SENTINEL:
+            saver = 0
+            enabled_saver = False
+        else:
+            saver = shell_saver
+            enabled_saver = True
     if shell_lock is not None:
-        lock = shell_lock
+        if shell_lock == SCREENSAVER_NEVER_SENTINEL:
+            lock = 0
+            enabled_lock = False
+        else:
+            lock = shell_lock
+            enabled_lock = True
     # defaults if missing
     if saver is None:
         saver = 1800
+        enabled_saver = True
     if display is None:
         display = 0
         enabled_display = False
     else:
-        enabled_display = True
+        enabled_display = display > 0
     if lock is None:
         lock = 2700
+        enabled_lock = True
+    if saver == 0:
+        enabled_saver = False
+    if lock == 0:
+        enabled_lock = False
     return {
         "screensaverSec": saver,
         "displayOffSec": display,
         "lockSec": lock,
-        "screensaverEnabled": enabled_saver and saver > 0,
-        "displayOffEnabled": enabled_display and display > 0,
-        "lockEnabled": enabled_lock and lock > 0,
+        "screensaverEnabled": enabled_saver,
+        "displayOffEnabled": enabled_display,
+        "lockEnabled": enabled_lock,
         "hypridleActive": is_hypridle_active(),
     }
 
