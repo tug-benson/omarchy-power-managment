@@ -129,33 +129,18 @@ IdleActionSec={format_sec(idle_sec)}
     if Path(DROPIN_PATH).exists() and not os.access(DROPIN_PATH, os.W_OK):
         needs_pkexec = True
     if needs_pkexec:
-        # create temp file and pkexec move
-        import tempfile, shutil
-        fd, tmp = tempfile.mkstemp(prefix="logind.", text=True)
-        os.write(fd, content.encode())
-        os.close(fd)
-        # use pkexec to install
-        # need to ensure DROPIN_DIR exists
-        cmd = ["pkexec", "bash", "-lc", f"mkdir -p {DROPIN_DIR} && cat \"{tmp}\" > \"{DROPIN_PATH}\" && chmod 644 \"{DROPIN_PATH}\" && systemctl restart systemd-logind || true; rm -f \"{tmp}\""]
-        # Alternative: pkexec cp
+        # Secure: pipe content via stdin to pkexec, no user-owned temp file.
+        # Previous version used mkstemp + cat "$tmp" which is TOCTOU-vulnerable:
+        # same-UID attacker could replace tmp with symlink to root-only file
+        # before pkexec cat, causing root to copy that file into 0644 drop-in.
+        cmd = ["pkexec", "bash", "-c", f"mkdir -p {DROPIN_DIR} && cat > {DROPIN_PATH} && chmod 644 {DROPIN_PATH} && systemctl restart systemd-logind || true"]
         try:
-            # we cannot pass tmp directly to pkexec bash with quoting; use helper
-            # write tmp to /tmp and let pkexec cat
-            # tmp is already in /tmp
-            result = subprocess.run(cmd, timeout=20)
+            result = subprocess.run(cmd, input=content.encode(), timeout=20)
             if result.returncode != 0:
                 print("pkexec failed or cancelled", file=sys.stderr)
-                try:
-                    os.unlink(tmp)
-                except Exception:
-                    pass
                 sys.exit(result.returncode)
         except subprocess.TimeoutExpired:
             print("pkexec timeout", file=sys.stderr); sys.exit(1)
-        try:
-            os.unlink(tmp)
-        except Exception:
-            pass
     else:
         Path(DROPIN_DIR).mkdir(parents=True, exist_ok=True)
         Path(DROPIN_PATH).write_text(content)
