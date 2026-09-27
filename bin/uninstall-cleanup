@@ -4,10 +4,14 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 state_tool="$script_dir/runtime_state.py"
 unit=io.github.tug-benson.power-managment-inhibit.service
-flag="$HOME/.local/state/omarchy/toggles/lid-suspend-off"
 
-# Remove flag if it belongs to this plugin (shared with chupe)
-rm -f "$flag" 2>/dev/null || true
+# NOTE: lid-suspend-off is a shared user setting (also used by
+# chupe/omarchy-lid-suspend, menu rows and user scripts via
+# `omarchy-toggle lid-suspend-off`). Uninstall must NOT delete it:
+# we cannot establish this plugin created it, and removing it would
+# silently re-enable lid suspend for another plugin or the user's
+# existing setting. Leave the flag untouched; only release our own
+# inhibitor unit and our own runtime state below.
 
 # Stop inhibitor via locked control
 bash "$script_dir/inhibitor-control" release 2>/dev/null || systemctl --user stop --quiet "$unit" 2>/dev/null || true
